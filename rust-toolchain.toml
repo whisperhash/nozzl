@@ -1,0 +1,10 @@
+[toolchain]
+# SINGLE SOURCE OF TRUTH for the Rust toolchain across local dev, CI, AND the
+# deploy image (deploy/Dockerfile COPYs this file so the image compiles with the
+# exact same rustc — see #the build-skew fix). Bump here and nowhere else; the
+# CI `image-build` job's drift guard fails if deploy/Dockerfile's RUST_VERSION
+# base falls out of major.minor sync with this channel.
+channel = "1.95.0"
+# llvm-tools-preview is needed by the CI coverage job (cargo-llvm-cov); listing
+# it here means `rustup show` installs it from this file, no per-job pin.
+components = ["rustfmt", "clippy", "llvm-tools-preview"]

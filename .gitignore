@@ -1,0 +1,56 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Python (scripts/)
+__pycache__/
+*.pyc
+.venv/
+# IDE / editor
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Local data — never commit archive contents or runtime state
+/data/
+/local-data/
+/checkpoints.json
+**/_state/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+
+# Local config overrides (real config lives at deploy time)
+/config/local.*.toml
+/config/*.local.toml
+.env
+.env.local
+
+# Logs
+*.log
+
+# Coverage
+/coverage/
+*.profraw
+*.profdata
+
+# Test artifacts
+/tmp/
+/tests/fixtures/_generated/

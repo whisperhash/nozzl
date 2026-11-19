@@ -1,0 +1,95 @@
+# The relays nozzl acquires from. Hot-reloaded: adding a relay starts a
+# backfill against it, without a restart.
+#
+# As shipped, nozzl backfills from each relay all the history it holds of every
+# kind it is asked for, which is what nostrology-data needs. Remove relays, or
+# narrow their `only_kinds`, for a smaller archive.
+#
+# `only_kinds` (optional) restricts a relay to the kinds listed; absent, the
+# relay is asked for every kind in kinds.toml. A kind's own `only_relays`
+# (kinds.toml) narrows this further: a relay is asked for a kind only when both
+# admit it. Scoping a relay to the kinds it serves keeps unrelated kinds from
+# dragging its forward subscription's `since` back.
+
+[[relay]]
+url = "wss://relay.damus.io"
+
+[[relay]]
+url = "wss://nos.lol"
+
+[[relay]]
+url = "wss://relay.primal.net"
+
+# Zapstore's relay: its app-distribution kinds, the zap receipts against them
+# and the curator's deletions.
+[[relay]]
+url = "wss://relay.zapstore.dev"
+only_kinds = [5, 3063, 9735, 30063, 30267, 32267]
+
+# The GRASP reference server (ngit-grasp). It keeps only the events connected
+# to the repositories it hosts.
+[[relay]]
+url = "wss://relay.ngit.dev"
+only_kinds = [7, 1111, 9735, 10317, 30617, 30618]
+
+# Soapbox's relay (ditto-relay), a general relay.
+[[relay]]
+url = "wss://relay.ditto.pub"
+only_kinds = [10317, 30617, 30618, 17]
+
+# An in-memory relay (memlay), one of the relays Iris Git sends repository
+# stars to.
+[[relay]]
+url = "wss://relay.snort.social"
+only_kinds = [17]
+
+# The next four are GRASP servers: git hosts running ngit-grasp, which keep the
+# events connected to the repositories they host.
+[[relay]]
+url = "wss://gitnostr.com"
+only_kinds = [7, 1111, 9735, 10317, 30617, 30618]
+
+# Shakespeare's git host.
+[[relay]]
+url = "wss://git.shakespeare.diy"
+only_kinds = [7, 1111, 9735, 10317, 30617, 30618]
+
+# The GRASP host run by ngit's author.
+[[relay]]
+url = "wss://ngit.danconwaydev.com"
+only_kinds = [7, 1111, 9735, 10317, 30617, 30618]
+
+[[relay]]
+url = "wss://grasp.budabit.club"
+only_kinds = [7, 1111, 9735, 10317, 30617, 30618]
+
+# ngit-indexer, the git announcement index. It crawls the relays that
+# repository announcements and GRASP server lists name.
+[[relay]]
+url = "wss://index.ngit.dev"
+only_kinds = [5, 10317, 30617]
+
+# A strfry relay that copies events from other relays.
+[[relay]]
+url = "wss://relay.nostr.net"
+only_kinds = [10317, 30617, 30618, 17]
+
+# The Fountain (podcast and audio) app relay.
+[[relay]]
+url = "wss://relay.fountain.fm"
+only_kinds = [9735]
+
+# The Plebeian Market application relay.
+[[relay]]
+url = "wss://relay.plebeian.market"
+only_kinds = [30402, 30405, 30406]
+
+# A general-purpose strfry relay.
+[[relay]]
+url = "wss://nostr.mom"
+only_kinds = [30402, 30405, 30406, 17]
+
+# Conduit's application relay. Conduit co-authored the GammaMarkets market spec.
+[[relay]]
+url = "wss://relay.conduit.market"
+only_kinds = [30402, 30405, 30406]

@@ -1,0 +1,41 @@
+[package]
+name = "nozzl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "nozzl"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nozzl"
+path = "src/main.rs"
+
+[dependencies]
+nozzl-types = { path = "../nozzl-types" }
+nozzl-config = { path = "../nozzl-config" }
+nozzl-checkpoint = { path = "../nozzl-checkpoint" }
+nozzl-archive = { path = "../nozzl-archive" }
+nozzl-metrics = { path = "../nozzl-metrics" }
+nozzl-http = { path = "../nozzl-http" }
+nozzl-acquirer = { path = "../nozzl-acquirer" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+async-trait = { workspace = true }
+prometheus = { workspace = true }
+
+[dev-dependencies]
+nozzl-test-relay = { path = "../nozzl-test-relay" }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros"] }
+nostr = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }

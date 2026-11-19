@@ -1,0 +1,390 @@
+name: CI
+
+# A push to main runs the checks, after the merge, and `gh workflow run CI --ref <branch>` asks
+# for a run on a branch before merging. A push that changes nothing outside docs/ starts no run:
+# no job reads docs/, and the image does not copy it.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A newer run of the same ref cancels the one still running: only the newest commit's result
+  # is wanted.
+  cancel-in-progress: true
+
+# The checks run build scripts, proc macros and tests from hundreds of locked crates, with
+# the token left in .git/config by actions/checkout: reading the repository is all they need.
+# The two Discord jobs check nothing out; notify asks for actions: read on its own.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Every job starts on a fresh machine, so each brings what it needs: the toolchain
+# rust-toolchain.toml names, and the compiled dependencies from GitHub's Actions cache
+# (Swatinem/rust-cache for the two cargo jobs, BuildKit's gha cache for the image). The three
+# checks run side by side, each to its end whatever the others do, so one run shows every
+# failure. A job of its own posts to Discord that the run has started, and notify posts how it
+# ended.
+#
+# Every action is pinned by commit, with its release in the comment beside it: a tag can be moved
+# to new code by whoever holds the action's repository. Each job's limit is at least twice its
+# duration with nothing cached, so a hung step fails the job.
+jobs:
+  # notify posts only at the run's end, so this job says when the run has started. It checks
+  # nothing out and runs nothing from this repository, so the webhook it holds is never in a job
+  # that runs the crates' build scripts or tests. A failed post never fails the job. One line per
+  # stage, each with an hourglass: the same shape the end-of-run notify posts with its result
+  # icons and durations, so the two messages line up in the channel and the stage names read as a
+  # checklist being filled in. Keep the three names identical to the job names below and to the
+  # ones `notify` prints, or the start and the end disagree about what ran.
+  start:
+    name: discord start
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Post the start to Discord
+        continue-on-error: true
+        env:
+          WEBHOOK:    ${{ secrets.DISCORD_WEBHOOK }}
+          REPO:       ${{ github.repository }}
+          BRANCH:     ${{ github.ref_name }}
+          SHA:        ${{ github.sha }}
+          ACTOR:      ${{ github.actor }}
+          RUN_URL:    ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # A dispatched run carries no head_commit, so fall back to something always set.
+          COMMIT_MSG: ${{ github.event.head_commit.message || github.workflow }}
+        run: |
+          MSG="${COMMIT_MSG%%$'\n'*}"
+          DESC=$(printf '"%s"\nCI started:\n⏳ static checks\n⏳ test + coverage\n⏳ image build' "${MSG:0:120}")
+          jq -n \
+            --arg title "⏳ ${REPO##*/} · $BRANCH · ${SHA:0:7}" \
+            --arg desc  "$DESC" \
+            --arg url   "$RUN_URL" \
+            --arg foot  "Triggered by $ACTOR" \
+            '{embeds:[{title:$title,url:$url,description:$desc,color:3447003,footer:{text:$foot}}]}' \
+          | curl -fsSL --connect-timeout 10 --max-time 30 -X POST "$WEBHOOK" -H "Content-Type: application/json" -d @-
+
+  # Every check that needs no build: clippy so far. A new check of that kind belongs here, where a
+  # failure shows within minutes rather than after the tests. (The Dockerfile pin checks still run in
+  # image build, beside the build they guard.)
+  static-checks:
+    name: static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # Toolchain comes from rust-toolchain.toml (the single source of truth):
+      # `rustup toolchain install` installs that channel and its components (`rustup show`
+      # still does, but warns that this is deprecated). Do NOT hardcode a version here: a
+      # pin that drifts from the toml/Dockerfile is exactly the skew that let a 1.95-only
+      # error ship into a 1.93 image.
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install && rustup show
+      # After the toolchain, since rustc's version is part of the cache key, as are this job's id
+      # and Cargo.lock. It keeps the dependencies and leaves the workspace's own crates to
+      # recompile. cache-on-failure: dependencies that compiled are worth keeping when a lint fails.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: true
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # The tests run once, and that run is measured: cargo llvm-cov compiles the workspace's own
+  # crates with coverage counters and runs `cargo test --tests`, every unit and integration
+  # test. Its pass/fail is the gate and its report is the coverage figure. Until 2026-10-26
+  # `test` and `coverage` were two jobs that compiled and ran the same tests twice. What
+  # keeps this run equal to a plain `cargo test --workspace`:
+  # - Only our crates and the build scripts get counters; dependency libraries compile as in a
+  #   plain build. --no-cfg-coverage and its nightly twin stop cargo llvm-cov from also setting
+  #   cfg(coverage), so no #[cfg] can tell the two builds apart.
+  # - cargo llvm-cov runs doctests only with --doctests, which needs a nightly toolchain, so a
+  #   plain `cargo test --doc` runs them. There are none yet; the step makes the first one run.
+  # - duckdb is installed, and NOZZL_REQUIRE_DUCKDB makes its tests fail rather than skip if
+  #   it is not (export_duckdb.rs).
+  # - The cargo-llvm-cov binary is pinned, since it builds and runs the gate's tests: a new
+  #   release reaches the gate in a commit. Check its release notes when bumping the toolchain.
+  # --no-fail-fast makes one run report every failing test binary, not only the first.
+  test:
+    name: test + coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      pct_lines: ${{ steps.report.outputs.pct_lines }}
+      pct_fns:   ${{ steps.report.outputs.pct_fns }}
+      raw_lines: ${{ steps.report.outputs.raw_lines }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # llvm-tools-preview is declared in rust-toolchain.toml, so the toolchain install
+      # installs it here too, keeping the toolchain pin in one place.
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install && rustup show
+      # As in static checks. This job builds the dependencies twice, in cargo llvm-cov's
+      # target/llvm-cov-target and in target/debug for the doctests, and the cache keeps both.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: true
+      # fallback: none, so a version missing from the action's checksummed list fails here
+      # rather than being fetched another way. The list is the pinned commit's: a newer
+      # cargo-llvm-cov may need a newer pin of the action.
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-llvm-cov@0.9.1
+          fallback: none
+      # duckdb CLI so nozzl-export's integration test (real ndjson output +
+      # dedup/window semantics) runs in CI rather than skipping; the test step sets
+      # NOZZL_REQUIRE_DUCKDB, so a missing duckdb fails it. Pinned + SHA256-verified;
+      # this job runs on amd64.
+      - name: Install duckdb
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 -o /tmp/duckdb.gz \
+            https://github.com/duckdb/duckdb/releases/download/v1.5.3/duckdb_cli-linux-amd64.gz
+          echo "f05f3b448a9a1bc6e7ac27ff14dfe67bf5761b153c2002723365a456618ef35b  /tmp/duckdb.gz" | sha256sum -c -
+          gunzip -c /tmp/duckdb.gz | sudo tee /usr/local/bin/duckdb >/dev/null
+          sudo chmod 0755 /usr/local/bin/duckdb
+          duckdb --version
+      - name: Run the tests, measuring coverage
+        id: report
+        env:
+          NOZZL_REQUIRE_DUCKDB: "1"
+        run: |
+          cargo llvm-cov --workspace --locked --no-fail-fast --no-cfg-coverage --no-cfg-coverage-nightly \
+            --json --summary-only > coverage.json
+          jq -r '
+            .data[0].totals |
+            "pct_lines=\(.lines.percent   | . * 10 | round | . / 10)",
+            "pct_fns=\(.functions.percent | . * 10 | round | . / 10)",
+            "raw_lines=\(.lines.covered)/\(.lines.count)"
+          ' coverage.json >> "$GITHUB_OUTPUT"
+      # Whenever the tests ran, passed or failed, so one run reports every failing test.
+      - name: Doctests
+        if: ${{ !cancelled() && steps.report.outcome != 'skipped' }}
+        run: cargo test --doc --workspace --locked --no-fail-fast
+      # Whenever the coverage report was written, even if a doctest failed.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() && steps.report.outcome == 'success' }}
+        with:
+          name: coverage-json
+          path: coverage.json
+          retention-days: 90
+
+  image-build:
+    name: image build
+    runs-on: ubuntu-24.04
+    # With nothing cached the build compiles every dependency in release mode, which took about
+    # 11 minutes when measured (2026-06); with its cache it takes about 4.5. 30 is well over twice
+    # the first.
+    timeout-minutes: 30
+    # Builds the ACTUAL deploy image (deploy/Dockerfile) on every run. This is
+    # the "build what you ship" gate that plain `cargo` jobs are not: it runs every
+    # Dockerfile RUN step (would have caught the `set -o pipefail`-under-dash break)
+    # AND compiles under the pinned deploy toolchain (would have caught the
+    # 1.95-only type error that a newer cargo job accepted). It builds for amd64:
+    # the arm64-only release-asset SHAs (e.g. duckdb) still need a manual check on
+    # deploy, but every arch-independent failure mode is caught here.
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Toolchain pins in sync (Dockerfile base <-> rust-toolchain.toml)
+        run: |
+          set -euo pipefail
+          # `x=$(grep ...)` exits 1 when grep matches nothing, and `set -e` then kills the step
+          # AT THE ASSIGNMENT: the ::error annotations below never print and the job fails with no
+          # message. So capture with `|| true` and say what could not be read. A guard whose
+          # failure is silent is what this repository calls undebuggable by construction.
+          toml_ver=$(grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml || true)
+          df_ver=$(grep -oP '^ARG RUST_VERSION=\K\S+' deploy/Dockerfile || true)
+          if [ -z "$toml_ver" ] || [ -z "$df_ver" ]; then
+            echo "::error file=deploy/Dockerfile::cannot read the versions to compare: rust-toolchain.toml channel='$toml_ver', Dockerfile ARG RUST_VERSION='$df_ver'. A missing or reshaped line is a drift of its own, not a reason to pass."
+            exit 1
+          fi
+          toml_mm=$(echo "$toml_ver" | cut -d. -f1,2)
+          df_mm=$(echo "$df_ver" | cut -d. -f1,2)
+          if [[ "$toml_mm" != "$df_mm" ]]; then
+            echo "::error file=deploy/Dockerfile::RUST_VERSION ($df_ver) and rust-toolchain.toml channel ($toml_ver) diverge - bump both together (rust-toolchain.toml is the source of truth)."
+            exit 1
+          fi
+          echo "toolchain pins aligned: rust-toolchain.toml=$toml_ver, Dockerfile=$df_ver"
+          # Second half, added 2026-10-26 with the digest pins. Both FROM lines now carry an
+          # @sha256 digest, and Docker resolves the digest and IGNORES the tag beside it - so
+          # bumping RUST_VERSION or DEBIAN_VERSION alone would keep building the old base while
+          # the check above stayed green, and the only visible sign would be a version number
+          # that no longer describes the image. Each FROM therefore carries a `# base-pin:` line
+          # naming the tag its digest was resolved for; compare that with the ARGs.
+          #
+          # To bump a base: change the ARG, re-resolve the digest, update the base-pin line, all
+          # in one commit. Resolving it (through a curl whose TLS store you trust):
+          #   tok=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/<repo>:pull" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+          #   curl -sI -H "Authorization: Bearer $tok" \
+          #     -H "Accept: application/vnd.oci.image.index.v1+json" \
+          #     -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+          #     "https://registry-1.docker.io/v2/library/<repo>/manifests/<tag>"
+          # and read Docker-Content-Digest. Use the INDEX digest, not a per-arch one: this job
+          # builds for amd64, a deployment may build for arm64, and a single-arch digest breaks
+          # one of them.
+          deb_ver=$(grep -oP '^ARG DEBIAN_VERSION=\K\S+' deploy/Dockerfile || true)
+          if [ -z "$deb_ver" ]; then
+            echo "::error file=deploy/Dockerfile::cannot read ARG DEBIAN_VERSION, so the base-pin comparison cannot run."
+            exit 1
+          fi
+          want_rust="rust:${df_ver}-slim-${deb_ver}"
+          want_deb="debian:${deb_ver}-slim"
+          fail=0
+          for want in "$want_rust" "$want_deb"; do
+            if ! grep -qxF "# base-pin: ${want} resolved 2026-10-26" deploy/Dockerfile \
+               && ! grep -qE "^# base-pin: ${want} resolved [0-9]{4}-[0-9]{2}-[0-9]{2}\$" deploy/Dockerfile; then
+              echo "::error file=deploy/Dockerfile::no '# base-pin: ${want} resolved <date>' line. The ARGs now say ${want}, so the digest below must have been resolved for THAT tag; re-resolve it and update the base-pin line."
+              fail=1
+            fi
+          done
+          # And every FROM that uses those ARGs must actually carry a digest, or the pin is gone.
+          pinned=$(grep -cE '^FROM (rust|debian):\$\{[A-Z_]+\}[^ ]*@sha256:[0-9a-f]{64}' deploy/Dockerfile || true)
+          if [ "${pinned:-0}" != "2" ]; then
+            echo "::error file=deploy/Dockerfile::expected 2 digest-pinned FROM lines, found $pinned"
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "base pins aligned: $want_rust, $want_deb, both digest-pinned"
+          exit "$fail"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: No ARG named for a variable the build tools read as configuration
+        run: |
+          set -euo pipefail
+          # Docker exports every ARG into the environment of the RUN steps after it, so an ARG
+          # named CARGO_* (or RUSTFLAGS, etc.) silently becomes cargo configuration - and a
+          # compose file that forwards it unset passes the EMPTY string, which cargo rejects.
+          # This cost a failed dev deploy on 2026-10-26; the fix was to rename the arg, and this
+          # is what stops the name coming back. Matches the declaration, not a mention in a
+          # comment.
+          bad=$(grep -nE '^ARG (CARGO_|RUSTFLAGS|RUSTC|RUSTUP_)' deploy/Dockerfile || true)
+          if [ -n "$bad" ]; then
+            echo "::error file=deploy/Dockerfile::an ARG is named for a variable cargo/rustc reads as configuration, so an empty value from a compose file becomes a build-aborting setting. Rename it (see ARG NOZZL_BUILD_JOBS). Offending lines:"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+          echo "no build-tool-configuration ARG names in deploy/Dockerfile"
+      - name: Build deploy image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          # NOZZL_BUILD_JOBS is passed EMPTY on purpose. A deployment builds with
+          # `docker compose build`, whose `${CARGO_BUILD_JOBS:-}` sets the arg to the empty
+          # string, while this action would otherwise leave it absent - and absent and empty are
+          # different things to the shell and to cargo. That difference is exactly how a broken
+          # build passed here and failed on the box on 2026-10-26. Build the way they build.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            NOZZL_BUILD_JOBS=
+          # The cache across runs is GitHub's Actions cache. mode=max keeps every stage's layers,
+          # the dependency layer cargo chef cooks among them, so a run whose manifests and
+          # Cargo.lock are unchanged compiles only the workspace's own crates. BuildKit's cache
+          # mounts are not exported, so each run downloads the crates again. ignore-error: the cache backend has failed an
+          # export now and then ("error writing layer blob: not_found"), which is a cache hiccup,
+          # not a build failure, so it must never fail this check.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+
+  notify:
+    name: discord notify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # After the start post too, so the end never reaches the channel before the start.
+    needs: [start, static-checks, test, image-build]
+    # Not for a cancelled run, such as one a newer push superseded: its post would only say that
+    # its checks were cancelled, at the cost of another job. The newer run posts its own.
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+    steps:
+      - name: Post result to Discord
+        env:
+          WEBHOOK:      ${{ secrets.DISCORD_WEBHOOK }}
+          R_STATIC:     ${{ needs.static-checks.result }}
+          R_TEST:       ${{ needs.test.result }}
+          R_IMAGE:      ${{ needs.image-build.result }}
+          COV_LINES: ${{ needs.test.outputs.pct_lines }}
+          COV_FNS:   ${{ needs.test.outputs.pct_fns }}
+          COV_RAW:   ${{ needs.test.outputs.raw_lines }}
+          REPO:         ${{ github.repository }}
+          BRANCH:       ${{ github.ref_name }}
+          SHA:          ${{ github.sha }}
+          ACTOR:        ${{ github.actor }}
+          RUN_URL:      ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID:       ${{ github.run_id }}
+          COMMIT_MSG:   ${{ github.event.head_commit.message || github.workflow }}
+          GH_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          icon() { [[ "$1" == success ]] && echo ✅ || echo ❌; }
+          if [[ "$R_STATIC" == success && "$R_TEST" == success && "$R_IMAGE" == success ]]; then
+            overall=✅; color=3066993
+          else
+            overall=❌; color=15158332
+          fi
+
+          # curl rather than `gh api`, so a failed read says so: `gh api`'s error once went to
+          # /dev/null, and the post lost every duration without a word.
+          JOBS=$(curl -fsSL --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$REPO/actions/runs/$RUN_ID/jobs") || {
+            echo "::warning::could not read this run's jobs, so the Discord post has no durations"
+            JOBS='{}'
+          }
+
+          dur() {
+            jq -r --arg n "$1" '
+              [(.jobs // [])[] | select(.name == $n)] |
+              if length == 0 or .[0].started_at == null or .[0].completed_at == null then ""
+              else
+                .[0] | ((.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601)) | floor |
+                if . >= 60 then "\(. / 60 | floor)m\(. % 60)s" else "\(.)s" end
+              end
+            ' <<<"$JOBS"
+          }
+
+          TOTAL=$(jq -r '
+            [(.jobs // [])[] | select(.completed_at != null)] |
+            if length == 0 then ""
+            else
+              ((map(.completed_at | fromdateiso8601) | max) -
+               (map(.started_at  | fromdateiso8601) | min)) | floor |
+              if . >= 60 then "\(. / 60 | floor)m\(. % 60)s" else "\(.)s" end
+            end
+          ' <<<"$JOBS")
+
+          D_STATIC=$(dur "static checks")
+          D_TEST=$(dur "test + coverage")
+          D_IMAGE=$(dur "image build")
+
+          JOBS_LINE="$(icon "$R_STATIC") static checks${D_STATIC:+ - $D_STATIC}"$'\n'"$(icon "$R_TEST") test + coverage${D_TEST:+ - $D_TEST}"$'\n'"$(icon "$R_IMAGE") image build${D_IMAGE:+ - $D_IMAGE}"
+          [[ -n "$TOTAL" ]] && JOBS_LINE+=$'\n'"Total: $TOTAL"
+          if [[ -n "$COV_LINES" ]]; then
+            COV_COVERED="${COV_RAW%%/*}"
+            COV_TOTAL="${COV_RAW##*/}"
+            COV_K="$(( COV_COVERED / 1000 )).$(( (COV_COVERED % 1000) / 100 ))k/$(( COV_TOTAL / 1000 )).$(( (COV_TOTAL % 1000) / 100 ))k"
+            JOBS_LINE+=$'\n\n'"Test coverage:"$'\n'"📊 ${COV_LINES}% (${COV_K}) lines · ${COV_FNS}% functions"
+          fi
+
+          MSG="${COMMIT_MSG%%$'\n'*}"
+          MSG="${MSG:0:120}"
+          if [[ -n "$MSG" ]]; then
+            DESC=$(printf '"%s"\n%s' "$MSG" "$JOBS_LINE")
+          else
+            DESC="$JOBS_LINE"
+          fi
+
+          jq -n \
+            --arg title "$overall ${REPO##*/} · $BRANCH · ${SHA:0:7}" \
+            --arg desc  "$DESC" \
+            --arg url   "$RUN_URL" \
+            --arg foot  "Triggered by $ACTOR" \
+            --argjson color "$color" \
+            '{embeds:[{title:$title,url:$url,description:$desc,color:$color,footer:{text:$foot}}]}' \
+          | curl -fsSL --connect-timeout 10 --max-time 30 -X POST "$WEBHOOK" -H "Content-Type: application/json" -d @-

@@ -1,0 +1,13 @@
+# The build context is the repository root, as in
+# `docker build -f deploy/Dockerfile .`. The Dockerfile copies only
+# rust-toolchain.toml, Cargo.toml, Cargo.lock and crates/, so everything else
+# is dead weight in the context. The one that matters most is data/: nozzl run
+# from here with the shipped config/nozzl.toml writes its archive and logs
+# there, and they change constantly while it runs.
+.git/
+target/
+data/
+docs/
+scripts/
+*.tar.gz
+**/*.md

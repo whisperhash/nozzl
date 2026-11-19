@@ -1,0 +1,30 @@
+[package]
+name = "nozzl-export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nozzl-export"
+path = "src/bin/nozzl-export.rs"
+
+[dependencies]
+nozzl-types = { path = "../nozzl-types" }
+nozzl-archive = { path = "../nozzl-archive" }
+# io-std: the CLI bin streams to tokio stdout.
+tokio = { workspace = true, features = ["io-std"] }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
+bytes = "1"
+tracing = { workspace = true }
+thiserror = { workspace = true }
+# CLI bin only
+clap = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

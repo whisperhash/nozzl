@@ -1,0 +1,49 @@
+[package]
+name = "nozzl-acquirer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nozzl-types = { path = "../nozzl-types" }
+nozzl-checkpoint = { path = "../nozzl-checkpoint" }
+nozzl-metrics = { path = "../nozzl-metrics" }
+nostr = { workspace = true }
+nostr-database = "0.44"
+nostr-relay-pool = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+# The pool's WebSocket transport (src/transport.rs) is a copy of async-wsocket 0.13.2's direct
+# connect with a User-Agent, so it pins that release exactly (the pool's own "0.13" accepts it),
+# and needs the tokio-tungstenite release async-wsocket uses, with the same features: on another,
+# `WebSocket::Tokio` stops type-checking. On a bump, re-diff the copy (transport.rs says how).
+async-wsocket = "=0.13.2"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+# Minimum versions, not code we call. What a relay connection trusts is these two crates, which it
+# reaches through the transports above. webpki-roots is the root set those connections compile in:
+# 1.0.10 is the first release without emSign ECC Root CA - G3, compromised in the 2026-10 eMudhra
+# incident. rustls-webpki is the verifier: 0.103.16 added the blocklist of that incident's compromised
+# intermediate keys. Naming them here makes a --locked build, the image's included, refuse a lock
+# below them. crates/nozzl/tests/tls_crates.rs reads these two numbers, so write each as a plain
+# major.minor.patch, and holds what Cargo cannot see: an older line a dependency brings in beside
+# these, a transport that stops using them, and the numbers themselves falling. When a later
+# incident raises either floor, raise it here, and `ruled_out` in that test with it.
+webpki-roots = { version = "1.0.10", default-features = false }
+rustls-webpki = { version = "0.103.16", default-features = false }
+
+[dev-dependencies]
+nozzl-test-relay = { path = "../nozzl-test-relay" }
+nozzl-checkpoint = { path = "../nozzl-checkpoint" }
+nozzl-metrics = { path = "../nozzl-metrics" }
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tempfile = { workspace = true }
+prometheus = { workspace = true }
+async-trait = { workspace = true }
+tracing-subscriber = { workspace = true }

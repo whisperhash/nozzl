@@ -1,0 +1,26 @@
+[package]
+name = "nozzl-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nozzl-metrics = { path = "../nozzl-metrics" }
+nozzl-archive = { path = "../nozzl-archive" }
+nozzl-export = { path = "../nozzl-export" }
+axum = { workspace = true }
+prometheus = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tower = { workspace = true, features = ["util"] }
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+tempfile = { workspace = true }

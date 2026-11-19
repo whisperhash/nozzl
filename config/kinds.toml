@@ -1,0 +1,153 @@
+# The event kinds nozzl acquires. Hot-reloaded: adding a kind starts a backfill
+# of it on every relay it reaches, without a restart. A kind reaches a relay
+# when the relay's `only_kinds` (relays.toml) admits the kind and the kind's
+# own `only_relays` admits the relay.
+#
+# This holds every kind nostrology-data reads, plus a few it does not read yet.
+# Kinds are grouped by domain, in the order nostrolo.gy lists its domains.
+# General-purpose kinds come last, each with the domains that read it.
+#
+# `slug` is required. It names the kind in metric labels and logs and is not
+# part of the archive layout (`c={class}/k={kind}/...`). A slug must match
+# `^[a-z0-9][a-z0-9-]*$` and be at most 63 bytes.
+
+# --- Zapstore ----------------------------------------------------------------
+
+# Zapstore software assets: the checksum and binary anchors that
+# kind-30063 (zapstore-app-releases) references. Regular.
+[[kind]]
+k = 3063
+slug = "zapstore-asset-metadata"
+
+# Zapstore app releases. Addressable.
+[[kind]]
+k = 30063
+slug = "zapstore-app-releases"
+
+# Zapstore app stacks. Addressable.
+[[kind]]
+k = 30267
+slug = "zapstore-app-stacks"
+
+# Zapstore app catalog. Addressable.
+[[kind]]
+k = 32267
+slug = "zapstore-app-catalog"
+
+# --- Marketplaces ------------------------------------------------------------
+
+# NIP-99 classified listing: the core marketplace record. Addressable.
+[[kind]]
+k = 30402
+slug = "markets-product-listings"
+
+# Product collection, a storefront grouping. From the GammaMarkets market spec,
+# not NIP-99 itself. Addressable.
+[[kind]]
+k = 30405
+slug = "markets-collections"
+
+# Shipping option, which listings reference. From the GammaMarkets market spec,
+# in the NIP-99 number range but not in the NIP. Addressable.
+[[kind]]
+k = 30406
+slug = "markets-shipping-options"
+
+# --- Git-on-Nostr ------------------------------------------------------------
+
+# GRASP server list, the NIP-65 analogue for NIP-34 (git collaboration).
+# Replaceable.
+[[kind]]
+k = 10317
+slug = "grasp-server-lists"
+
+# NIP-34 repository announcement. Addressable.
+[[kind]]
+k = 30617
+slug = "repo-announcements"
+
+# NIP-34 repository state: branch and tag tips. Addressable.
+[[kind]]
+k = 30618
+slug = "repo-states"
+
+# NIP-25 (reactions) to content outside Nostr. Regular.
+[[kind]]
+k = 17
+slug = "external-content-reactions"
+
+# --- Nutzaps -----------------------------------------------------------------
+
+# NIP-60 spending history and nutzap redemptions. Content is NIP-44 encrypted.
+# Regular.
+[[kind]]
+k = 7376
+slug = "nutzap-redemptions"
+
+# NIP-61 nutzaps: zaps paid in Cashu tokens. Regular.
+[[kind]]
+k = 9321
+slug = "nutzaps"
+
+# A user's nutzap configuration. Replaceable.
+[[kind]]
+k = 10019
+slug = "nutzap-configs"
+
+# --- Relays ------------------------------------------------------------------
+
+# A user's relay list. Replaceable.
+[[kind]]
+k = 10002
+slug = "relay-list-metadata"
+
+# --- Routstr -----------------------------------------------------------------
+
+# Routstr provider announcement. Addressable.
+[[kind]]
+k = 38421
+slug = "routstr-provider-announcements"
+
+# Routstr analytics snapshot. Addressable.
+[[kind]]
+k = 38422
+slug = "routstr-analytics-snapshots"
+
+# Routstr model catalog. Addressable.
+[[kind]]
+k = 38423
+slug = "routstr-model-catalog"
+
+# Routstr provider review. Addressable.
+[[kind]]
+k = 38425
+slug = "routstr-provider-reviews"
+
+# --- General-purpose kinds ---------------------------------------------------
+
+# User profile metadata. Replaceable. Read by Zapstore, Git-on-Nostr and
+# Lightning.
+[[kind]]
+k = 0
+slug = "profile-metadata"
+
+# NIP-09 (event deletion) requests. nozzl archives each request and applies
+# none. Regular. Read by Marketplaces and Git-on-Nostr.
+[[kind]]
+k = 5
+slug = "event-deletion-requests"
+
+# NIP-25 reactions. Regular. Read by Git-on-Nostr.
+[[kind]]
+k = 7
+slug = "reactions"
+
+# NIP-22 threaded comments. Regular. Read by Git-on-Nostr.
+[[kind]]
+k = 1111
+slug = "comments"
+
+# Zap receipts. Regular. Read by Zapstore, Git-on-Nostr and Lightning.
+[[kind]]
+k = 9735
+slug = "zap-receipts"

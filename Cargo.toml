@@ -1,0 +1,123 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/nozzl-types",
+    "crates/nozzl-config",
+    "crates/nozzl-checkpoint",
+    "crates/nozzl-archive",
+    "crates/nozzl-export",
+    "crates/nozzl-metrics",
+    "crates/nozzl-http",
+    "crates/nozzl-test-relay",
+    "crates/nozzl-acquirer",
+    "crates/nozzl",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "fs", "time", "signal", "io-util", "net", "process"] }
+# Stream adapter over child-process stdout for the export endpoint (ReaderStream)
+tokio-util = { version = "0.7", features = ["io"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-appender = "0.2"
+
+# Errors
+thiserror = "2"
+anyhow = "1"
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Async traits
+async-trait = "0.1"
+
+# Nostr
+nostr = "0.44"
+nostr-relay-pool = "0.44"
+
+# Storage
+object_store = { version = "0.13", features = ["aws"] }
+
+# Config watcher
+notify = "7"
+
+# HTTP
+axum = "0.8"
+hyper = "1"
+tower = "0.5"
+
+# Metrics
+prometheus = "0.14"
+
+# Url
+url = { version = "2", features = ["serde"] }
+
+# Encoding
+percent-encoding = "2"
+sha2 = "0.10"
+hex = "0.4"
+
+# Filesystem helpers
+tempfile = "3"
+
+# Test deps
+proptest = "1"
+tokio-tungstenite = "0.27"
+futures-util = "0.3"
+
+# Caching
+lru = "0.16"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Columnar storage (chunked Parquet writer)
+arrow = "55"
+arrow-array = "55"
+arrow-schema = "55"
+parquet = { version = "55", default-features = false, features = ["arrow", "zstd"] }
+
+# ULID for chunk filenames (lexicographically sortable, time-ordered)
+ulid = "1"
+
+# Date/time formatting (currently used by nozzl-archive only; promoting to
+# workspace dep so the new chunk path code can share)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# ─── FORK IN USE ─────────────────────────────────────────────────────────────
+# We build against whisperhash/nostr (branch nozzl-v0.44), a fork of
+# rust-nostr/nostr's v0.44 maintenance branch carrying ONE additive patch:
+# Relay::is_connection_task_running() — the teardown-completion barrier
+# needed to fix the disconnect/connect reconnect race (issue #8).
+# All three rust-nostr crates MUST be patched together from the same tag,
+# else the graph gets two copies of `nostr` and type-mismatch errors
+# (the pool's deps are workspace/path deps within the fork repo).
+# Full context + maintenance/exit procedure:
+#   docs/nostr-relay-pool-limitations.md → "The whisperhash fork".
+[patch.crates-io]
+nostr            = { git = "https://github.com/whisperhash/nostr", tag = "nozzl-v0.44-patch.1" }
+nostr-database   = { git = "https://github.com/whisperhash/nostr", tag = "nozzl-v0.44-patch.1" }
+nostr-relay-pool = { git = "https://github.com/whisperhash/nostr", tag = "nozzl-v0.44-patch.1" }
+
+[profile.release]
+lto = "thin"
+# codegen-units governs intra-crate codegen parallelism. cgu=1 maximizes a single
+# crate's optimization but serializes codegen for *every* crate (deps included),
+# which dominates build time on a constrained host. cgu and thin-LTO are
+# orthogonal (parallel codegen vs cross-module inlining) — thin-LTO still performs
+# cross-crate optimization at cgu=16. For this I/O/network-bound archival daemon the
+# runtime cost of cgu=16 is negligible while the build-time win is large. See #16.
+codegen-units = 16
+strip = "symbols"

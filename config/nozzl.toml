@@ -1,0 +1,98 @@
+# nozzl's configuration, ready to run from the repository root:
+#
+#   cargo run --release -p nozzl -- --config config/nozzl.toml
+#
+# As shipped it archives locally, under data/ in the current directory: the
+# Parquet archive, its write-ahead log and its checkpoints in data/events/, and
+# the rolled logs in data/logs/. relays.toml and kinds.toml, beside this file,
+# are the relay and kind lists, and they hot-reload. Everything in this file is
+# read once at startup.
+#
+# Each commented-out setting in the sections below shows nozzl's default;
+# uncomment it to change it.
+#
+# To pair nozzl with nostrology-data, which reads these kinds from the archive,
+# see the end of this file.
+
+[storage]
+backend = "local"
+root = "data/events"
+
+[checkpoint]
+path = "data/events/_state/checkpoints.json"
+
+[runtime]
+# Events are buffered in memory per archive partition (each kind is split 16
+# ways, by the first hex digit of the author's pubkey). A buffer is published
+# as a Parquet chunk when it reaches either size below, or when its oldest
+# event has waited chunk_max_buffer_seconds, whichever comes first.
+# chunk_max_size_bytes = 67108864    # 64 MiB in memory; the file is smaller
+# chunk_max_rows = 50000
+# Raise it (say to 43200, 12 h) for fewer, larger chunks. Buffered events are
+# safe in the write-ahead log meanwhile, and POST /admin/flush/{kind}
+# publishes a kind's buffers at once.
+# chunk_max_buffer_seconds = 3600
+# Shortens each buffer's age limit by a fixed share, different per buffer, of
+# up to this fraction of chunk_max_buffer_seconds, so buffers started together
+# (as after a restart) do not all publish in the same second. 0.0 turns it
+# off; at most 0.5.
+# chunk_buffer_age_jitter = 0.10
+# Most chunk publishes (Parquet encoding and writing) in flight at once.
+# chunk_flush_concurrency = 32
+# The relay pool's in-memory dedup cache, about 120 bytes an entry: 500,000
+# is about 60 MB. nozzl's default, 5,000,000 (about 600 MB), suits a server.
+pool_dedup_max_events = 500000
+# ZSTD level for the Parquet chunks, 1 to 22: higher is smaller and costs more
+# CPU to write.
+# parquet_zstd_level = 9
+
+[observability]
+# /metrics and /health.
+metrics_addr = "127.0.0.1:9090"
+# POST /admin/flush/{kind} and GET /export/{kind}. Unauthenticated, so keep it
+# on loopback unless you mean to expose it.
+admin_addr = "127.0.0.1:9091"
+# "pretty" for a terminal, "json" for a log shipper. Used for both stderr and
+# the log file.
+# log_format = "pretty"
+# A tracing-subscriber filter (EnvFilter syntax). For nozzl's own decisions at
+# debug, use "debug,nostr_relay_pool=info,tungstenite=info": those two crates
+# log every event in full at debug.
+log_level = "info"
+log_file = "data/logs/nozzl.log"
+# Daily files kept, today's included: a week of logs. Omit it to keep every
+# file.
+log_file_max_files = 7
+
+[storage_metrics]
+# A periodic scan of the archive that reports each kind's size and file count
+# on /metrics (storage_resident_bytes, storage_resident_files).
+# enabled = true
+# Seconds between scans, which is also how stale those figures can get.
+# scan_interval_seconds = 300
+# Kinds scanned at once; bounds the load on the disk or the bucket.
+# scan_concurrency = 4
+
+[sources]
+# Beside this file.
+relays_path = "./relays.toml"
+kinds_path = "./kinds.toml"
+
+# --- Pairing with nostrology-data --------------------------------------------
+# nostrology-data reads the archive from S3, through Athena, and flushes nozzl's
+# buffered events through the admin endpoint before every extract. To pair with
+# it, replace [storage] above with:
+#
+#   [storage]
+#   backend = "s3"
+#   bucket = "<your-bucket>"
+#   prefix = ""             # nostrology-data reads the archive from the bucket root
+#   region = "<your-region>"
+#   root = "data/events"    # still local: the write-ahead log and checkpoints
+#
+# Credentials come from the standard AWS chain (environment, profile or instance
+# role), never from this file, and nozzl refuses to start on S3 without bucket,
+# prefix and region. `<your-bucket>` is no valid bucket name, so a copy left unedited
+# fails rather than write to a bucket someone else may own. Then give admin_addr an
+# address nostrology-data can reach: inside a container, "0.0.0.0:9091", published on
+# loopback only.
