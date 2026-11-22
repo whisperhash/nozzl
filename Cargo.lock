@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1831,7 +1831,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-acquirer"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "async-wsocket",
@@ -1858,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-archive"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -1888,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-checkpoint"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "libc",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-config"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "notify",
  "serde",
@@ -1917,7 +1917,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-export"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1935,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-http"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-metrics"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "nozzl-types",
  "prometheus",
@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-test-relay"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "axum",
  "futures-util",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "nozzl-types"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "nostr",
  "proptest",

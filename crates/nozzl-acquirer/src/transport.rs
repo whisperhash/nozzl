@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn user_agent_is_what_relays_see() {
         // A version bump changes what every relay sees; change this with it, deliberately.
-        assert_eq!(USER_AGENT, "nozzl/0.1.0");
+        assert_eq!(USER_AGENT, "nozzl/0.4.0");
     }
 
     #[test]
