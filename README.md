@@ -1,20 +1,28 @@
 # nozzl
 
-nozzl is a long-running service that archives Nostr events. It reads a configured set of event kinds from a configured set of relays, walks back through what each relay has stored, stays subscribed for new events, and writes what it receives as Parquet files, on local disk or in S3.
+Nozzl is a long-running Nostr event acquisition service designed from the ground up for analytical use cases.
 
-It is the archiver behind [nostrolo.gy](https://nostrolo.gy): nostrology-data, the site's data pipeline, reads the archive.
+It is built for continuous event acquisition within focused Nostr domains, rather than pervasive, indiscriminate acquisition across the Nostr network at large.
 
-The design, with the reasoning behind each decision, is in [docs/design.md](docs/design.md).
+Its explicit design choices:
+- Nostr events are persisted directly in the storage- and compute-efficient Parquet format, which eliminates a separate data ingest step for downstream processing.
+- Data is persisted in a sharded / partitioned storage layout that is directly consumable by established parallel-processing engines such as Apache Spark, DuckDB, Athena and others.
+- Nozzl captures mutations of replaceable and addressable event kinds, which enables trend-over-time use cases.
+
+It reads a configured set of event kinds from a configured set of relays, walks back / backfills from each relay to its full historical depth, and stays subscribed for new events. In a typical deployment, nozzl is configured with a mixture of domain-specific relays (Zapstore, Marketplaces, Git-on-Nostr, etc.) and a handful of general-purpose relays.
+
+The detailed design, with the reasoning behind each decision, is in [docs/design.md](docs/design.md).
+
+Nozzl is the data acquisition layer of the Nostrology data stack. It powers [nostrolo.gy](https://nostrolo.gy): [nostrology-data](https://github.com/whisperhash/nostrology-data), the stack's collection of data pipelines and the MCP data serving layer, consumes the acquired data. The configuration that ships with nozzl includes all event kinds required by data pipelines in nostrology-data.
 
 ## What it does
 
-- **Archives replaceable, addressable and regular kinds**, whichever the config lists. Ephemeral events (kind numbers 20000 to 29999), which relays do not store, are refused.
+- **Archives replaceable, addressable and regular kinds**, whichever the config lists. Ephemeral events are refused.
 - **Backfills and follows.** When a relay or a kind is added, nozzl pages backward through what the relay holds until it runs out, while a long-lived subscription picks up new events. Progress is checkpointed per relay and kind, so both resume after a restart.
 - **Copes with real relays.** It splits a multi-kind request a relay rejects, backs off when a relay signals too many subscriptions or a rate limit, and recovers a request the relay never finishes or a subscription it silently stops serving.
-- **Applies relay and kind changes live.** Adding a relay or a kind to its file starts the backfill at once, without a restart.
+- **Applies relay and kind changes live.** Adding a relay or a kind to its configuration starts the backfill at once, without a restart.
 - **Writes plain Parquet**, as a partitioned dataset that DuckDB, Athena, Spark, polars or pyarrow read in place, with no ingest step.
 - **Survives crashes.** Each event goes to a write-ahead log on local disk before it is buffered, and the log is replayed at the next start.
-- **Only reads from Nostr.** It never publishes or signs an event, stores encrypted content as it arrives, and does not authenticate to relays (NIP-42 (relay AUTH)), so it gets only what a relay serves to anyone.
 
 ## Quick start
 
@@ -131,8 +139,8 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 Copyright (C) 2026 the nozzl authors.
 
-nozzl is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+Nozzl is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-nozzl is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+Nozzl is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
 The license's full text is in [LICENSE](LICENSE). Code that came from other projects keeps its own license: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists it.
